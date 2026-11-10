@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ticket Triage</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+--bg:#f6f5f2;--card:#fff;--text:#1d1d1b;--muted:#6b6a65;--line:#e2e0d9;--accent:#2f5d50;
+--c-urgent:#b3261e;--c-high:#c46a00;--c-med:#8a7600;--c-low:#5f6b66;--bg-urgent:#fbe9e7;--bg-high:#fdf0dc;--bg-med:#f7f2d3;--bg-low:#eceeed;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#171716;--card:#222220;--text:#ecebe6;--muted:#a09f98;--line:#37362f;--accent:#7cc2ad;
+--c-urgent:#ff8a80;--c-high:#ffb457;--c-med:#e6d35a;--c-low:#a6b0ab;--bg-urgent:#3d2220;--bg-high:#3b2b14;--bg-med:#37330f;--bg-low:#2b2d2c;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#171716;--card:#222220;--text:#ecebe6;--muted:#a09f98;--line:#37362f;--accent:#7cc2ad;
+--c-urgent:#ff8a80;--c-high:#ffb457;--c-med:#e6d35a;--c-low:#a6b0ab;--bg-urgent:#3d2220;--bg-high:#3b2b14;--bg-med:#37330f;--bg-low:#2b2d2c;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:860px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:22px;margin:0 0 4px}
+.sub{color:var(--muted);margin:0 0 16px}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}
+.bar label{font-size:13px;color:var(--muted);display:flex;gap:6px;align-items:center}
+button,select,input{font:inherit;color:var(--text)}
+button{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:6px 11px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button.p{background:var(--accent);border-color:var(--accent);color:var(--bg)}
+input,select{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 8px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}
+.tab{display:flex;align-items:center;gap:6px;border-radius:999px;padding:6px 14px;font-size:14px}.tab b{font-weight:700}.tab.on{background:var(--accent);border-color:var(--accent);color:var(--bg)}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--muted)}.d-urgent{background:var(--c-urgent)}.d-high{background:var(--c-high)}.d-med{background:var(--c-med)}.d-low,.d-closed{background:var(--c-low)}.tab.on .dot{outline:2px solid var(--bg)}
+.msg{padding:10px 12px;border-radius:8px;margin-bottom:12px;background:var(--bg-urgent);color:var(--c-urgent)}
+.card{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+.t-urgent{border-left-color:var(--c-urgent)}.t-high{border-left-color:var(--c-high)}.t-med{border-left-color:var(--c-med)}.t-low{border-left-color:var(--c-low)}
+.hd{display:flex;flex-wrap:wrap;gap:8px;align-items:baseline}
+.rank{color:var(--muted);font-weight:600}
+.id{font-weight:700}
+.badge{font-size:12px;font-weight:700;border-radius:6px;padding:2px 8px;margin-left:auto}
+.b-urgent{background:var(--bg-urgent);color:var(--c-urgent)}.b-high{background:var(--bg-high);color:var(--c-high)}.b-med{background:var(--bg-med);color:var(--c-med)}.b-low{background:var(--bg-low);color:var(--c-low)}
+.issue{margin:6px 0 4px}
+.meta{font-size:13px;color:var(--muted)}
+.why{margin:10px 0 0;padding:0;list-style:none}
+.why li{padding:8px 10px;border-radius:8px;background:var(--bg);margin-bottom:6px}
+.why b{display:block}
+.why span{color:var(--muted);font-size:14px}
+.notes{white-space:pre-wrap;font-size:14px;border-top:1px dashed var(--line);margin-top:10px;padding-top:8px}
+.act{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}
+.act input[type=text]{flex:1;min-width:160px}
+.empty{text-align:center;color:var(--muted);padding:30px}
+</style>
+</head>
+<body>
+<main>
+<h1>Ticket triage</h1>
+<p class="sub">Load a tickets CSV and see which tickets need attention first, and why. Changes are saved in this browser.</p>
+<div class="bar">
+  <input type="file" id="file" accept=".csv,text/csv">
+  <label>As of <input type="date" id="asof"></label>
+  <button id="sample">Reload sample</button>
+</div>
+<div id="err"></div>
+<div class="chips" id="chips"></div>
+<div id="list"></div>
+</main>
+<script>
+const SAMPLE = `ticket_id,opened,customer,country,delivered,firmware,issue,status,last_reply_from,last_reply_date,notes
+T-101,2026-09-28,Maya Okafor,CA,2026-08-25,2.4.1,"Cycle stops halfway since the last update. Third time writing in. Wants a full refund.",open,customer,2026-10-03,"Two earlier tickets were closed with 'restart the unit'."
+T-102,2026-10-01,Daniel Reyes,US,2026-09-12,2.4.1,"Unit pauses mid-cycle and the light blinks amber.",open,customer,2026-10-01,
+T-103,2026-10-02,Priya Nair,CA,2026-09-20,2.4.1,"Stops after about an hour. Worked fine before the update.",open,customer,2026-10-02,
+T-104,2026-09-24,Tom Lindqvist,US,2026-09-22,2.3.0,"Box arrived crushed and the lid is cracked. Photos attached.",waiting on us,customer,2026-09-24,"Carrier claim not filed yet."
+T-105,2026-09-18,Grace Chen,CA,2026-09-01,2.3.0,"Sent the unit back for a refund. Tracking shows it reached the warehouse on Sep 26.",waiting on warehouse,us,2026-09-27,"Warehouse has not confirmed receipt. Refund on hold."
+T-106,2026-10-03,Samir Haddad,CA,2026-10-01,2.4.1,"Cannot connect to Wi-Fi during setup.",open,customer,2026-10-03,
+T-107,2026-10-02,Lena Fischer,US,2026-09-30,2.4.0,"Would like an onboarding call this week.",open,customer,2026-10-02,
+T-108,2026-09-29,Andre Baptiste,CA,2026-09-10,2.3.0,"Changed his mind and wants a refund. Needs a return label.",open,customer,2026-09-29,
+T-109,2026-09-30,Maya Okafor,CA,2026-08-25,2.4.1,"Following up on my refund request. Nobody has answered.",open,customer,2026-09-30,
+T-110,2026-09-25,Hannah Brooks,US,2026-08-30,2.3.0,"Was promised a replacement by Sep 26. Still no tracking number.",waiting on us,us,2026-09-26,"Replacement unit not allocated yet."
+T-111,2026-10-04,Oliver Grant,CA,2026-09-05,2.4.0,"Loves it. Asks how to order a second unit for his parents.",open,customer,2026-10-04,
+T-112,2026-10-01,Sofia Marino,US,2026-09-27,2.4.0,"Amber light is blinking. Unit seems to run normally.",open,customer,2026-10-01,
+`;
+const KEY='ticket-triage-v1';
+const REQ=['ticket_id','opened','customer','delivered','issue','status','last_reply_from','last_reply_date'];
+const DATES=['opened','delivered','last_reply_date'];
+const STATUSES=['open','waiting on us','waiting on customer','waiting on warehouse','resolved','closed'];
+let S={tickets:[],asOf:'',showDone:false};
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function parseCSV(t){t=t.replace(/^\uFEFF/,'');const rows=[];let row=[],f='',q=false;
+ for(let i=0;i<t.length;i++){const c=t[i];
+  if(q){if(c=='"'){if(t[i+1]=='"'){f+='"';i++}else q=false}else f+=c}
+  else if(c=='"')q=true;
+  else if(c==','){row.push(f);f=''}
+  else if(c=='\n'||c=='\r'){if(c=='\r'&&t[i+1]=='\n')i++;row.push(f);rows.push(row);row=[];f=''}
+  else f+=c}
+ if(f!==''||row.length){row.push(f);rows.push(row)}
+ return rows.filter(r=>r.some(x=>x.trim()!==''))}
+
+const D=s=>Date.UTC(+s.slice(0,4),+s.slice(5,7)-1,+s.slice(8,10));
+const diff=(a,b)=>Math.round((D(b)-D(a))/864e5);
+const addDays=(s,n)=>new Date(D(s)+n*864e5).toISOString().slice(0,10);
+function bdays(a,b){let n=0;for(let d=addDays(a,1);D(d)<=D(b);d=addDays(d,1)){const w=new Date(D(d)).getUTCDay();if(w>0&&w<6)n++}return n}
+const fmt=s=>new Date(D(s)).toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'UTC'});
+const maxDate=ts=>ts.flatMap(t=>DATES.map(d=>t[d])).sort().pop();
+
+function toTickets(text){
+ const rows=parseCSV(text);if(rows.length<2)throw new Error('The file has no ticket rows.');
+ const head=rows[0].map(h=>h.trim().toLowerCase());
+ const miss=REQ.filter(c=>!head.includes(c));
+ if(miss.length)throw new Error('Missing required column(s): '+miss.join(', ')+'.');
+ return rows.slice(1).map((r,n)=>{const o={};head.forEach((h,i)=>o[h]=(r[i]??'').trim());
+  DATES.forEach(d=>{if(!/^\d{4}-\d{2}-\d{2}$/.test(o[d])||isNaN(D(o[d])))throw new Error('Row '+(n+2)+': “'+d+'” must be a date like 2026-10-03.')});
+  o.status=o.status.toLowerCase();o.last_reply_from=o.last_reply_from.toLowerCase();o.notes=o.notes||'';o.flags={};return o})}
+
+const DMG=/crushed|cracked|damaged|broken on arrival|arrived broken/i;
+const STOP=/stop|paus|halfway|mid-cycle/i;
+const isDone=s=>/^(resolved|closed|done)/.test(s);
+
+function analyze(t,all,asOf){
+ if(isDone(t.status))return{reasons:[],score:-1,tier:'low',done:true};
+ const R=[],add=(pts,why,doit)=>R.push({pts,why,doit});
+ const issue=t.issue,notes=t.notes;
+ const isRefund=/refund|money back|changed (his|her|their) mind|return label/i.test(issue);
+ const returned=/sent (the unit|it) back|returned|shipped back/i.test(issue);
+ const confirmed=!!t.flags.wh||(/confirmed/i.test(notes)&&!/not\s+(yet\s+)?confirmed/i.test(notes));
+ const claimed=!!t.flags.claim||(/claim.*(filed|submitted)/i.test(notes)&&!/not\s+(yet\s+)?(filed|submitted)/i.test(notes));
+ // Rule 1: reply within 1 business day
+ if(t.last_reply_from==='customer'){
+  const bd=bdays(t.last_reply_date,asOf);
+  if(bd>=2)add(50+Math.min(bd,10)*5,`Customer has waited ${bd} business days for a reply since ${fmt(t.last_reply_date)}. Rule 1 says reply within 1 business day.`,'Reply today.');
+  else if(bd===1)add(30,`Customer wrote ${fmt(t.last_reply_date)}. Rule 1: a reply is due by the end of today.`,'Reply today.');
+ }else if(t.status==='waiting on us'){
+  const d=diff(t.last_reply_date,asOf);
+  if(d>=2)add(35+Math.min(d,10)*3,`We last replied ${d} days ago and the ticket is still marked “waiting on us”, so something we promised is outstanding.`,'Do the outstanding action, then update the customer.');
+ }
+ // Rules 2 and 4: refunds
+ if(isRefund){
+  const atReq=diff(t.delivered,t.opened),end=addDays(t.delivered,30);
+  if(atReq>30){
+   add(25,`Refund requested ${atReq} days after delivery; the 30-day refund window ended ${fmt(end)} (rule 2). Warranty covers repair or replacement only.`,'Decline the refund politely and offer repair or replacement.'+(/earlier|third|again/i.test(issue+' '+notes)?' Check the dates of earlier tickets: if the first refund request fell inside the window, it may still qualify.':''));
+  }else if(!returned){
+   const left=diff(asOf,end);
+   add(left<=7?30:15,`Refund is allowed (requested on day ${atReq} of 30). The window closes ${fmt(end)}${left>=0?` (${left} day${left===1?'':'s'} left)`:''}.`,'Send the return label so the unit can ship back in time.');
+  }
+  if(returned&&atReq<=30){
+   if(confirmed)add(30,'The warehouse has confirmed the returned unit (rule 4), so the refund can now be paid.','Issue the refund and close the ticket.');
+   else add(45,'Refund is on hold: the warehouse has not confirmed the returned unit (rule 4). Don’t pay until it does.','Ask the warehouse to confirm receipt, and tell the customer where things stand.');
+  }
+ }
+ // Rule 3: carrier claim within 14 days
+ if(DMG.test(issue)&&!claimed){
+  const dl=addDays(t.delivered,14),left=diff(asOf,dl);
+  if(left<0)add(55,`The carrier claim deadline (${fmt(dl)}) passed ${-left} day${left===-1?'':'s'} ago and no claim is on record (rule 3).`,'File anyway and ask the carrier; otherwise cover the loss ourselves.');
+  else add(left<=3?60:30,`Shipping damage, no carrier claim filed. Rule 3: file within 14 days of delivery, by ${fmt(dl)} (${left} day${left===1?'':'s'} left).`,'File the carrier claim now.');
+ }
+ // Patterns across tickets
+ const others=all.filter(o=>o!==t&&o.customer.toLowerCase()===t.customer.toLowerCase()&&!isDone(o.status));
+ if(others.length)add(15,`Same customer has other open ticket(s): ${others.map(o=>o.ticket_id).join(', ')}.`,'Handle them together and give one consistent answer.');
+ if(STOP.test(issue)){
+  const cl=all.filter(o=>o.firmware===t.firmware&&!isDone(o.status)&&STOP.test(o.issue));
+  if(cl.length>=3)add(10,`${cl.length} open tickets on firmware ${t.firmware} report the cycle stopping early, which looks like a firmware regression.`,'Escalate to engineering; avoid “restart the unit” replies.');
+ }
+ const score=R.reduce((a,r)=>a+r.pts,0);
+ R.sort((a,b)=>b.pts-a.pts);
+ const tier=score>=90?'urgent':score>=50?'high':score>=25?'med':'low';
+ return{reasons:R,score,tier,claimed,confirmed,isRefund,returned,done:false};
+}
+const TL={urgent:'Urgent',high:'High',med:'Medium',low:'Low'};
+
+function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+function commit(t){save();render()}
+function saveMeta(){save()}
+function init(){if(!load())useCSV(SAMPLE);render()}
+function load(){try{const v=localStorage.getItem(KEY);if(v){const o=JSON.parse(v);if(o&&Array.isArray(o.tickets)&&o.tickets.length&&o.asOf){S=o;return true}}}catch(e){}return false}
+function useCSV(text){const ts=toTickets(text);S.tickets=ts;S.asOf=maxDate(ts);save();render()}
+
+function render(){
+ $('asof').value=S.asOf;
+ const rows=S.tickets.map(t=>({t,a:analyze(t,S.tickets,S.asOf)}));
+ const shown=rows.slice().sort((x,y)=>y.a.score-x.a.score||D(x.t.last_reply_date)-D(y.t.last_reply_date));
+ S.tab=S.tab||'all';shown.forEach((r,i)=>{r.rank=i+1});
+ const cnt={urgent:0,high:0,med:0,low:0,closed:0};shown.forEach(r=>{cnt[r.a.done?'closed':r.a.tier]++});
+ const tabs=[['all','All',shown.length],...['urgent','high','med','low'].map(k=>[k,TL[k],cnt[k]])];tabs.push(['closed','Closed',cnt.closed]);
+ $('chips').innerHTML=tabs.map(([k,l,n])=>`<button class="tab${S.tab===k?' on':''}" data-tab="${k}" role="tab" aria-selected="${S.tab===k}"><span class="dot d-${k}"></span>${l} <b>${n}</b></button>`).join('');
+ const view=S.tab==='all'?shown:shown.filter(r=>(r.a.done?'closed':r.a.tier)===S.tab);
+ if(!view.length){$('list').innerHTML='<div class="empty">'+(S.tab==='closed'?'No resolved or closed tickets yet.':shown.length?'No tickets in this tab.':'No open tickets. Upload a CSV or reload the sample.')+'</div>';return}
+ $('list').innerHTML=view.map(r=>{const{t,a}=r;
+  const opts=[...new Set([...STATUSES,t.status])].map(s=>`<option${s===t.status?' selected':''}>${esc(s)}</option>`).join('');
+  const dmg=DMG.test(t.issue)&&!a.claimed;
+  const whb=a.isRefund&&a.returned&&!a.confirmed;
+  const cls=a.done?'low':a.tier;
+  return `<div class="card t-${cls}" data-id="${esc(t.ticket_id)}">
+  <div class="hd"><span class="rank">${r.a.done?'':'#'+r.rank}</span><span class="id">${esc(t.ticket_id)}</span><span>${esc(t.customer)}${t.country?' · '+esc(t.country):''}</span>
+  <span class="badge b-${cls}">${a.done?'Closed':TL[a.tier]}</span></div>
+  <div class="issue">${esc(t.issue)}</div>
+  <div class="meta">Delivered ${fmt(t.delivered)} (${diff(t.delivered,S.asOf)} days ago) · firmware ${esc(t.firmware||'n/a')} · last reply from ${esc(t.last_reply_from)} on ${fmt(t.last_reply_date)}</div>
+  ${a.reasons.length?`<ul class="why">${a.reasons.map(x=>`<li><b>${esc(x.why)}</b><span>Next: ${esc(x.doit)}</span></li>`).join('')}</ul>`:(a.done?'':'<ul class="why"><li><span>No rule is breached right now.</span></li></ul>')}
+  ${t.notes?`<div class="notes">${esc(t.notes)}</div>`:''}
+  <div class="act"><select data-a="status">${opts}</select>
+   ${t.last_reply_from==='customer'?'<button data-a="replied">Mark replied</button>':''}
+   ${dmg?'<button data-a="claim">Claim filed</button>':''}${whb?'<button data-a="wh">Warehouse confirmed</button>':''}</div>
+  <div class="act"><input type="text" placeholder="Add a note…" data-a="notetext"><button class="p" data-a="note">Add note</button></div></div>`}).join('');
+}
+const find=id=>S.tickets.find(t=>t.ticket_id===id);
+const addNote=(t,x)=>{t.notes=(t.notes?t.notes+'\n':'')+`[${S.asOf}] ${x}`};
+$('list').addEventListener('click',e=>{const b=e.target.closest('button[data-a]');if(!b)return;
+ const card=b.closest('.card'),t=find(card.dataset.id),a=b.dataset.a;
+ if(a==='note'){const i=card.querySelector('[data-a=notetext]');if(!i.value.trim())return;addNote(t,i.value.trim());i.value=''}
+ else if(a==='replied'){t.last_reply_from='us';t.last_reply_date=S.asOf;if(t.status==='open'||t.status==='waiting on us')t.status='waiting on customer';addNote(t,'Replied to customer.')}
+ else if(a==='claim'){t.flags.claim=true;addNote(t,'Carrier claim filed.')}
+ else if(a==='wh'){t.flags.wh=true;addNote(t,'Warehouse confirmed receipt of returned unit.')}
+ commit(t)});
+$('list').addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.dataset.a==='notetext')e.target.closest('.card').querySelector('[data-a=note]').click()});
+$('list').addEventListener('change',e=>{if(e.target.dataset.a==='status'){const t=find(e.target.closest('.card').dataset.id);t.status=e.target.value;commit(t)}});
+$('asof').addEventListener('change',e=>{if(e.target.value){S.asOf=e.target.value;saveMeta();render()}});
+$('chips').addEventListener('click',e=>{const b=e.target.closest('[data-tab]');if(b){S.tab=b.dataset.tab;render()}});
+$('sample').addEventListener('click',()=>{if(confirm('Replace the current tickets and saved changes with the sample data?')){$('err').innerHTML='';useCSV(SAMPLE)}});
+$('file').addEventListener('change',e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();
+ r.onload=()=>{try{useCSV(r.result);$('err').innerHTML='';render()}catch(x){$('err').innerHTML='<div class="msg">'+esc(x.message)+'</div>'}e.target.value=''};r.readAsText(f)});
+init();
+render();
+</script>
+</body>
+</html>
